@@ -8,7 +8,7 @@
 
 import java.io.*;  // for Datastreams
 import java.net.*; // for sockets
-//import java.util.concurrent.ForkJoinPool; // to allow forking of the server
+import java.net.InetAddress;  // To find my IP
 
 /*
  * Will bind to a well known port (7654) which clients connect to.
@@ -36,6 +36,7 @@ import java.net.*; // for sockets
  * Version 3 - 20-Mar-2020 Updated talking protocol to include an introduction
  *                          Changed behavior of TEST to be a little more dynamic
  *                          Trying to add port hand off.
+ * Version 4 - 21-Mar-2020 Prints out my IP address to allow others to bind to me.
  * 
  */
 
@@ -57,8 +58,13 @@ public class PDBroker
         System.out.print("Starting broker..");
 
         try {
+           /* InetAddress inetAddress = InetAddress.getLocalHost();
+            System.out.println(inetAddress.getHostAddress());
+            */
+           
             mySocket = new ServerSocket(PORT);
-            System.out.println("complete.");
+            System.out.print("complete.  My IP is :" + InetAddress.getLocalHost().getHostAddress());
+          
 
         } catch (Exception e){
             System.out.println("Failed!");
