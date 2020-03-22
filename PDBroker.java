@@ -15,16 +15,22 @@ import java.net.InetAddress;  // To find my IP
  * 
  * After accepting a connection will fork off a thread to deal with it.
  * 
- * Thread will inquire as to what the client wants.  (send HELLO?)
+ * Server will inquire as to what the client wants.  (send HELLO?)
  * Client replies with "Introducing XXX" where XXX is a string with the programs name.
+ * Server replies with a new port number for communication to happen on.
+ * Client reconnects on that port
  * Server replies with "JOIN, TEST or QUIT"
+ * 
  * Supported options that the client sends back are:
  * TEST - play a test game  (runTestSession method)
  * JOIN - join the main broker which will schedule round robin games.
  * QUIT - causes server to exit. No further talking with client.
  * 
+ * For TEST:
  * Client replies with which option.
- * 
+ * Server sends BEGIN
+ * Client sends a move (DEFECT or COOPERATE)
+ * Server responds with either GAMEOVER or  O-XXX where XXX is either DEFECT or COOPERATE
  * 
  * 
  * The actual game interface for clients is identical for TEST and JOIN, it 
@@ -57,29 +63,26 @@ public class PDBroker
         Socket handOffInstance=null;
         System.out.print("Starting broker..");
 
+        // Network socket setup can fail, so wrap in a try...
         try {
-           /* InetAddress inetAddress = InetAddress.getLocalHost();
-            System.out.println(inetAddress.getHostAddress());
-            */
-           
             mySocket = new ServerSocket(PORT);
             System.out.print("complete.  My IP is :" + InetAddress.getLocalHost().getHostAddress());
-          
-
         } catch (Exception e){
             System.out.println("Failed!");
             System.out.println(e);
         }
 
+        //We'll do the same here, different try as we might want to do something different with a failure here.
         try{
             boolean keepGoing=true;
-            while (keepGoing) {
+            while (keepGoing) {    // Keep going until we receive a QUIT message.
                 System.out.println("Listening for connection...");
-                instance = mySocket.accept();  // establish a connectio  
+                instance = mySocket.accept();  // establish a connection  
                 System.out.println("got it!");
                 System.out.print("talking on port:"+instance.getLocalPort()+" and ");
                 System.out.println(" to port:" +instance.getPort());
-
+                
+                //Start handshakes
                 DataOutputStream say=new DataOutputStream(instance.getOutputStream());
                 System.out.print(".");
                 say.writeUTF("HELLO?");
@@ -114,7 +117,7 @@ public class PDBroker
                 System.out.println(".");
                 instance.close();
                 instance=handOff.accept();
-                
+
                 System.out.println(";");
                 say=new DataOutputStream(instance.getOutputStream());
                 System.out.print(".");
@@ -178,14 +181,14 @@ public class PDBroker
                     action="O:DEFECT";
                 else action="O:COOPERATE";
                 last=theySaid;
-                
-                if (DEBUG){
-                System.out.print(".");
-                System.out.print(theirName+" said "+theySaid+"; ");
-                System.out.print("I say "+action+"; ");
 
-                if (round %3 ==0) System.out.println();
-            }
+                if (DEBUG){  // Should probably call this verbose mode as it lets us see the game played out.
+                    System.out.print(".");
+                    System.out.print(theirName+" said "+theySaid+"; ");
+                    System.out.print("I say "+action+"; ");
+
+                    if (round %3 ==0) System.out.println();
+                }
                 weSay.writeUTF(action);
                 //System.out.print(".");                              
             }
