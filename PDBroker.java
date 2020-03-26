@@ -51,6 +51,7 @@ public class PDBroker
 {
     final int PORT=7654; // hopefully free
     final boolean VERBOSE = true;
+    final boolean DEBUG=true ; // short games etc.
     final int MAXCLIENTS=2;  // Maximum number of connections that I will accept.
     String theirName;
     Socket instances[] = new Socket[MAXCLIENTS]; // socket each client is talking on.
@@ -88,6 +89,7 @@ public class PDBroker
         try{
             boolean keepGoing=true;
             while (keepGoing) {    // Keep going until we receive a QUIT message.
+                if (VERBOSE) System.out.println();
                 System.out.println("Listening for connection...");
                 instance = mySocket.accept();  // establish a connection  
                 System.out.println("got it!");
@@ -174,8 +176,7 @@ public class PDBroker
     // Small method that just adds a client into our list of clients that want to play.
     void addGameSession(Socket s, DataInputStream theySaid, DataOutputStream say){
         if (VERBOSE) { System.out.println(theirName+" wants to play a game");
-        }
-        System.out.println("doh..");
+        }        
         instances[connectedClients]=s;
         names[connectedClients]=theirName;
         talkToThem[connectedClients]=say;
@@ -185,18 +186,69 @@ public class PDBroker
     }
 
     // for the moment this will just work with two games.
-    void     playMatch(){
+    void playMatch(){
         DataInputStream theysay;
         DataOutputStream Isay;
+        String theySaid[] = new String[MAXCLIENTS];
         if (VERBOSE) { System.out.println("Starting game with "+connectedClients+" players");
         }
         // work through the list of players finding out what they want to do.
+        int roundsToPlay=(int) (Math.random()*1000)+1000;
+        if (DEBUG) roundsToPlay=10;
+        if (VERBOSE) System.out.println("Playing "+roundsToPlay+" rounds");
+
+        //Start by telling clients we are ready to begin
         for (int i=0;i< MAXCLIENTS;i++){
-            if (VERBOSE) System.out.println("Talking with "+names[i]);
-            
-            
+            if (VERBOSE) System.out.print("Talking with "+names[i]);
+            try {
+                talkToThem[i].writeUTF("BEGIN");
+                if (VERBOSE) System.out.print("..sent BEGIN");
+            } catch (Exception e){System.out.println(e);}
+        }
+        if (VERBOSE) System.out.println();
+
+        // Start playing rounds.
+        for (int round=1; round <= roundsToPlay; round++){
+            // Play a round
+            //First find out what they want to do.
+            for (int i=0;i< MAXCLIENTS;i++){
+                if (VERBOSE) System.out.print("Listening for "+names[i]+"move.  ");
+                try {
+                    theySaid[i]=hearFromThem[i].readUTF();
+                    if (VERBOSE) System.out.print("Heard "+theySaid[i]);
+
+                    if (VERBOSE) System.out.println();
+                } catch (Exception e){System.out.println(e);}
+            } // for i (listening)
+
+            // Now tell their opponent.  For the moment this just works with two, we will need
+            // to generalise it a bit when we do round robin.
+            //If it is the last round, don't do this.
+            if (round <roundsToPlay)
+                for (int i=0;i< MAXCLIENTS;i++){
+                    if (VERBOSE) System.out.print("Sharing other players move  with "+names[i]);
+                    try {
+                        talkToThem[i].writeUTF("O-"+theySaid[1-i]);
+                        if (VERBOSE) System.out.print("..sent: O-"+theySaid[1-i]);
+
+                        if (VERBOSE) System.out.println();
+                    } catch (Exception e){System.out.println(e);}
+
+                
+                }            // for i (talking)
+        }  // for each round
+
+        //Tell them all GAMEOVER
+        for (int i=0;i< MAXCLIENTS;i++){
+            if (VERBOSE) System.out.print("Saying GAMEOVER to "+names[i]);
+            try {
+                talkToThem[i].writeUTF("GAMEOVER");
+                if (VERBOSE) System.out.println("..sent GAMEOVER");
+            } catch (Exception e){System.out.println(e);}
+        }
+        if (VERBOSE) System.out.println();
+
     }
-}
 
     /*
      * Protocol here is the same as for a JOIN.
