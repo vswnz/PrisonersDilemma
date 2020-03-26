@@ -43,24 +43,36 @@ import java.net.InetAddress;  // To find my IP
  *                          Changed behavior of TEST to be a little more dynamic
  *                          Trying to add port hand off.
  * Version 4 - 21-Mar-2020 Prints out my IP address to allow others to bind to me.
+ * Version 5 - 26-Mar-2020 Get two clients playing each other.
  * 
  */
 
 public class PDBroker
 {
     final int PORT=7654; // hopefully free
-    final boolean DEBUG = false;
+    final boolean VERBOSE = true;
+    final int MAXCLIENTS=2;  // Maximum number of connections that I will accept.
     String theirName;
+    Socket instances[] = new Socket[MAXCLIENTS]; // socket each client is talking on.
+    String names[]=new String[MAXCLIENTS]; // The name of each of our clients
+    DataInputStream[] hearFromThem = new DataInputStream[MAXCLIENTS];
+    DataOutputStream[] talkToThem = new DataOutputStream[MAXCLIENTS];
+    int connectedClients=0;
+    boolean readyToPlay=false;
+
     /**
      * Constructor for objects of class CopyOfSockServ
      */
+
     public PDBroker()
     {
 
         ServerSocket mySocket=null;
         ServerSocket handOff=null;
+
+        // Going to change this to an array to handle multiple sockets.      
         Socket instance=null ;
-        Socket handOffInstance=null;
+
         System.out.print("Starting broker..");
 
         // Network socket setup can fail, so wrap in a try...
@@ -81,7 +93,7 @@ public class PDBroker
                 System.out.println("got it!");
                 System.out.print("talking on port:"+instance.getLocalPort()+" and ");
                 System.out.println(" to port:" +instance.getPort());
-                
+
                 //Start handshakes
                 DataOutputStream say=new DataOutputStream(instance.getOutputStream());
                 System.out.print(".");
@@ -135,11 +147,15 @@ public class PDBroker
                     keepGoing=false;                
                     instance.close();
                     break;
-                    case "TEST" : RunTestSession(clientSays,say);
+                    case "TEST" : runTestSession(clientSays,say);
+                    break;
+                    case "JOIN" : addGameSession(instance,clientSays,say);
                     break;
                     default :     System.out.println("Unknown request ("+theySaid+").  Dropping connection");
                     break;
                 }
+
+                if (readyToPlay) playMatch();
 
             } // While keepGoing
 
@@ -155,6 +171,33 @@ public class PDBroker
 
     }
 
+    // Small method that just adds a client into our list of clients that want to play.
+    void addGameSession(Socket s, DataInputStream theySaid, DataOutputStream say){
+        if (VERBOSE) { System.out.println(theirName+" wants to play a game");
+        }
+        System.out.println("doh..");
+        instances[connectedClients]=s;
+        names[connectedClients]=theirName;
+        talkToThem[connectedClients]=say;
+        hearFromThem[connectedClients]=theySaid;
+        connectedClients++;
+        if (connectedClients==MAXCLIENTS) readyToPlay=true;                    
+    }
+
+    // for the moment this will just work with two games.
+    void     playMatch(){
+        DataInputStream theysay;
+        DataOutputStream Isay;
+        if (VERBOSE) { System.out.println("Starting game with "+connectedClients+" players");
+        }
+        // work through the list of players finding out what they want to do.
+        for (int i=0;i< MAXCLIENTS;i++){
+            if (VERBOSE) System.out.println("Talking with "+names[i]);
+            
+            
+    }
+}
+
     /*
      * Protocol here is the same as for a JOIN.
      * Server starts with a "BEGIN" message.  
@@ -162,7 +205,7 @@ public class PDBroker
      * Server will then respond with "O:DEFECT", "O:COOPERATE", or "GAMEOVER"
      * Server in test mode will always run for 20 turns
      */
-    void RunTestSession (DataInputStream theySay, DataOutputStream weSay){
+    void runTestSession (DataInputStream theySay, DataOutputStream weSay){
 
         try {
             System.out.println("Starting in test mode");
@@ -174,7 +217,7 @@ public class PDBroker
             String last="COOPERATE";
             String action="";
             String theySaid="";
-            for (int round=1; round<2000;round++){
+            for (int round=1; round<10;round++){
 
                 theySaid=theySay.readUTF();
                 if (last.equals("DEFECT") && theySaid.equals("DEFECT"))
@@ -182,7 +225,7 @@ public class PDBroker
                 else action="O:COOPERATE";
                 last=theySaid;
 
-                if (DEBUG){  // Should probably call this verbose mode as it lets us see the game played out.
+                if (VERBOSE){  // Should probably call this verbose mode as it lets us see the game played out.
                     System.out.print(".");
                     System.out.print(theirName+" said "+theySaid+"; ");
                     System.out.print("I say "+action+"; ");
