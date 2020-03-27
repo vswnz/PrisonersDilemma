@@ -44,6 +44,7 @@ import java.net.InetAddress;  // To find my IP
  *                          Trying to add port hand off.
  * Version 4 - 21-Mar-2020 Prints out my IP address to allow others to bind to me.
  * Version 5 - 26-Mar-2020 Get two clients playing each other.
+ * Version 6 - 27-Mar-2020 Adding in Round robin for multiple players.
  * 
  */
 
@@ -52,7 +53,11 @@ public class PDBroker
     final int PORT=7654; // hopefully free
     final boolean VERBOSE = true;
     final boolean DEBUG=true ; // short games etc.
-    final int MAXCLIENTS=2;  // Maximum number of connections that I will accept.
+    final int MAXCLIENTS=4;  // Maximum number of connections that I will accept.  Must be even.
+    // Round robin stuff
+    int playerMatch[] = new int[MAXCLIENTS];
+    int offset=MAXCLIENTS/2;
+
     String theirName;
     Socket instances[] = new Socket[MAXCLIENTS]; // socket each client is talking on.
     String names[]=new String[MAXCLIENTS]; // The name of each of our clients
@@ -144,16 +149,15 @@ public class PDBroker
 
                 theySaid=(String)clientSays.readUTF();
                 switch (theySaid) {
-                    case "QUIT" :                         
-                    System.out.println("QUIT message received.  Stopping server");
-                    keepGoing=false;                
-                    instance.close();
+                    case "QUIT" :   System.out.println("QUIT message received.  Stopping server");
+                                    keepGoing=false;                
+                                    instance.close();
                     break;
                     case "TEST" : runTestSession(clientSays,say);
                     break;
                     case "JOIN" : addGameSession(instance,clientSays,say);
                     break;
-                    default :     System.out.println("Unknown request ("+theySaid+").  Dropping connection");
+                    default     : System.out.println("Unknown request ("+theySaid+").  Dropping connection");
                     break;
                 }
 
@@ -162,7 +166,7 @@ public class PDBroker
             } // While keepGoing
 
         } catch (Exception e){
-            System.out.println("error duing setup");
+            System.out.println("Error during setup");
             System.out.println(e);
             // tidy up
             try { mySocket.close(); } catch (Exception ingore){}
@@ -194,7 +198,7 @@ public class PDBroker
         }
         // work through the list of players finding out what they want to do.
         int roundsToPlay=(int) (Math.random()*1000)+1000;
-        if (DEBUG) roundsToPlay=10;
+        if (DEBUG) roundsToPlay=3;
         if (VERBOSE) System.out.println("Playing "+roundsToPlay+" rounds");
 
         //Start by telling clients we are ready to begin
@@ -207,7 +211,25 @@ public class PDBroker
         }
         if (VERBOSE) System.out.println();
 
-        // Start playing rounds.
+        // The round robin algorithm is taken from wikipedia.  It puts everyone in an array and rotates it
+        // around.  Details at : https://en.wikipedia.org/wiki/Round-robin_tournament
+        
+        // Set up initial array with players in order.
+        for (int i=0;i<MAXCLIENTS;i++)
+            playerMatch[i]=i;
+        
+        //Now work through the round robin rounds
+        for (int rrRound=0;rrRound < MAXCLIENTS-1;rrRound++){
+            System.out.println("Round "+rrRound+" matchups:");
+            
+            //First print out the current rotation.
+            if (VERBOSE) 
+                for (int i=0;i<offset;i++)
+                        System.out.println(playerMatch[i]+" vs "+playerMatch[MAXCLIENTS-1-i]);
+
+            // We know who is playing who now, so we go round by round.
+    
+        // Start playing rounds.  round here is round of game, not iterations of the round robin.
         for (int round=1; round <= roundsToPlay; round++){
             // Play a round
             //First find out what they want to do.
@@ -221,20 +243,21 @@ public class PDBroker
                 } catch (Exception e){System.out.println(e);}
             } // for i (listening)
 
-            // Now tell their opponent.  For the moment this just works with two, we will need
-            // to generalise it a bit when we do round robin.
-            //If it is the last round, don't do this.
+            // Now tell their opponent.  We are going to reuse our whoIsOpponent function again for this.
+            // If it is the last round, don't do this.
+            
+          
+            
             if (round <roundsToPlay)
                 for (int i=0;i< MAXCLIENTS;i++){
                     if (VERBOSE) System.out.print("Sharing other players move  with "+names[i]);
                     try {
-                        talkToThem[i].writeUTF("O-"+theySaid[1-i]);
-                        if (VERBOSE) System.out.print("..sent: O-"+theySaid[1-i]);
+                        talkToThem[i].writeUTF("O-"+theySaid[findIndex(whoIsOpponent(i))]);
+                        if (VERBOSE) System.out.print("..sent: O-"+theySaid[findIndex(whoIsOpponent(i))]);
 
                         if (VERBOSE) System.out.println();
                     } catch (Exception e){System.out.println(e);}
 
-                
                 }            // for i (talking)
         }  // for each round
 
@@ -247,9 +270,39 @@ public class PDBroker
             } catch (Exception e){System.out.println(e);}
         }
         if (VERBOSE) System.out.println();
+        
+        // Now, ignoring the first position, rotate the array clockwise.
+            // We need to remember the first rotated position for putting in at the end.
+            // As the template I am working on does a "clockwise" rotation, this is easier doing from 
+            // top of the array down, rather than the other way around.  Alternative would be to 
+            // do an anticlockwise rotation which should work just as well.
+            int remember=playerMatch[MAXCLIENTS-1];
+            for (int i=MAXCLIENTS-1; i>0 ;i--)
+                playerMatch[i]=playerMatch[i-1];
+            playerMatch[1]=remember;
+            
+            
+        
+    } // round robin.
 
+    }// Playmatch
+
+    
+    // findIndex finds the index in the current roundrobin of the given player
+    int findIndex(int who){
+         for (int checkIndex=0; checkIndex < MAXCLIENTS; checkIndex++)
+         if (playerMatch[checkIndex]==who) 
+                return checkIndex;
+         // We'll never get here, but blueJ complaints if it thinks we might be missing a return
+         return -1;  // If we do get here, lets make sure we error out.
     }
-
+    
+    // whoISOpponent returns the connection number of the opponent of the gived connection.
+    int whoIsOpponent(int me){
+     return playerMatch[MAXCLIENTS-1-findIndex(me)];        
+    }
+    
+    
     /*
      * Protocol here is the same as for a JOIN.
      * Server starts with a "BEGIN" message.  
