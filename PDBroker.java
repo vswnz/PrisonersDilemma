@@ -45,6 +45,8 @@ import java.net.InetAddress;  // To find my IP
  * Version 4 - 21-Mar-2020 Prints out my IP address to allow others to bind to me.
  * Version 5 - 26-Mar-2020 Get two clients playing each other.
  * Version 6 - 27-Mar-2020 Adding in Round robin for multiple players.
+ * Version 7 - 28-Mar-2020 Added in send COMPETITIONOVER at end of all round robins so clients can leave.
+ *                          Also closed out the datastreams at end of competition.
  * 
  */
 
@@ -265,8 +267,12 @@ public class PDBroker
         for (int i=0;i< MAXCLIENTS;i++){
             if (VERBOSE) System.out.print("Saying GAMEOVER to "+names[i]);
             try {
-                talkToThem[i].writeUTF("GAMEOVER");
-                if (VERBOSE) System.out.println("..sent GAMEOVER");
+                    String msg;
+                if (rrRound<MAXCLIENTS-2)
+                    msg="GAMEOVER";
+                    else msg="COMPETITIONOVER";
+                    talkToThem[i].writeUTF(msg);
+                if (VERBOSE) System.out.println("..sent "+msg);
             } catch (Exception e){System.out.println(e);}
         }
         if (VERBOSE) System.out.println();
@@ -284,6 +290,21 @@ public class PDBroker
             
         
     } // round robin.
+    // With the roundrobin over we need to tell them the whole competition is over.
+    
+    for (int i=0;i< MAXCLIENTS;i++){
+            if (VERBOSE) System.out.print("Shutting down connections to "+names[i]);
+            try {
+                talkToThem[i].close();
+                hearFromThem[i].close();
+                connectedClients--;
+  //              if (VERBOSE) System.out.println("..sent COMPETITIONOVER");
+            } catch (Exception e){System.out.println(e);}
+        } // for
+    
+        if (connectedClients !=0)
+                System.out.println("Ut oh, still have a client somehow. Bad.");
+        readyToPlay=false;
 
     }// Playmatch
 
