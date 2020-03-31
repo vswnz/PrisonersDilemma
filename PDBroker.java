@@ -47,20 +47,23 @@ import java.net.InetAddress;  // To find my IP
  * Version 6 - 27-Mar-2020 Adding in Round robin for multiple players.
  * Version 7 - 28-Mar-2020 Added in send COMPETITIONOVER at end of all round robins so clients can leave.
  *                          Also closed out the datastreams at end of competition.
+ * Version 8 - 31-Mar-2020 Implement basic scoring.
  * 
  */
 
 public class PDBroker
 {
     final int PORT=7654; // hopefully free
-    final boolean VERBOSE = true;
-    final boolean DEBUG=true ; // short games etc.
+    final boolean VERBOSE = false;
+    final boolean DEBUG=false ; // short games etc.
     final int MAXCLIENTS=4;  // Maximum number of connections that I will accept.  Must be even.
     // Round robin stuff
-    int playerMatch[] = new int[MAXCLIENTS];
+    int playerMatch[] = new int[MAXCLIENTS];  // Who player is matched againt.
     int offset=MAXCLIENTS/2;
+    int roundScores[] = new int[MAXCLIENTS];  // keep score within a round
+    float fullScores[] = new float[MAXCLIENTS];  // keep score overall for a competition.
 
-    String theirName;
+    String theirName;  // holds the "name" of a client.
     Socket instances[] = new Socket[MAXCLIENTS]; // socket each client is talking on.
     String names[]=new String[MAXCLIENTS]; // The name of each of our clients
     DataInputStream[] hearFromThem = new DataInputStream[MAXCLIENTS];
@@ -76,7 +79,9 @@ public class PDBroker
     {
 
         ServerSocket mySocket=null;
-        ServerSocket handOff=null;
+        ServerSocket handOff=null;        
+        for (int i=0;i<MAXCLIENTS; i++) // zero out full scoring array.
+            fullScores[i]=0;
 
         // Going to change this to an array to handle multiple sockets.      
         Socket instance=null ;
@@ -152,8 +157,8 @@ public class PDBroker
                 theySaid=(String)clientSays.readUTF();
                 switch (theySaid) {
                     case "QUIT" :   System.out.println("QUIT message received.  Stopping server");
-                                    keepGoing=false;                
-                                    instance.close();
+                    keepGoing=false;                
+                    instance.close();
                     break;
                     case "TEST" : runTestSession(clientSays,say);
                     break;
@@ -191,7 +196,45 @@ public class PDBroker
         if (connectedClients==MAXCLIENTS) readyToPlay=true;                    
     }
 
-    // for the moment this will just work with two games.
+    // Updates the score of player based on their move and their opponents move.
+    void updateScore(int player, String playerMove, String OpponentMove){
+        if (playerMove.equals("COOPERATE") && OpponentMove.equals("COOPERATE"))
+            roundScores[player]++;
+        else if (playerMove.equals("COOPERATE") && OpponentMove.equals("DEFECT"))
+            roundScores[player]-=5;
+        else if (playerMove.equals("DEFECT") && OpponentMove.equals("DEFECT"))
+            roundScores[player]-=3;
+        else if (playerMove.equals("DEFECT") && OpponentMove.equals("COOPERATE"))
+            roundScores[player]+=2;
+        else  System.out.println("Ut oh.. don't understand those moves."+playerMove +" vs "+OpponentMove);          
+    }
+
+    void printRoundScoreCard(){
+        for (int i=0; i<MAXCLIENTS;i++)
+            System.out.println(names[i]+" scored: "+roundScores[i]);        
+    }
+
+    void updateFullScoreCard(int rounds)
+    {
+/* 
+         for (int i=0;i<MAXCLIENTS;i++)
+            System.out.println("Player "+ names[i] +" score being adjusted by "+roundScores[i] +" shared over "+rounds+" rounds");
+ */
+
+        for (int i=0;i<MAXCLIENTS;i++)
+            fullScores[i]+=(float)roundScores[i]/rounds;
+
+    }
+
+    void printFullScoreCard()
+    {
+     
+        for (int i=0;i<MAXCLIENTS;i++)
+            System.out.println(names[i]+" scored: "+fullScores[i]); 
+//
+    }
+
+    // Plays a full round robin competition.
     void playMatch(){
         DataInputStream theysay;
         DataOutputStream Isay;
@@ -199,9 +242,7 @@ public class PDBroker
         if (VERBOSE) { System.out.println("Starting game with "+connectedClients+" players");
         }
         // work through the list of players finding out what they want to do.
-        int roundsToPlay=(int) (Math.random()*1000)+1000;
-        if (DEBUG) roundsToPlay=3;
-        if (VERBOSE) System.out.println("Playing "+roundsToPlay+" rounds");
+        int roundsToPlay;
 
         //Start by telling clients we are ready to begin
         for (int i=0;i< MAXCLIENTS;i++){
@@ -215,69 +256,85 @@ public class PDBroker
 
         // The round robin algorithm is taken from wikipedia.  It puts everyone in an array and rotates it
         // around.  Details at : https://en.wikipedia.org/wiki/Round-robin_tournament
-        
+
         // Set up initial array with players in order.
         for (int i=0;i<MAXCLIENTS;i++)
             playerMatch[i]=i;
-        
+
         //Now work through the round robin rounds
         for (int rrRound=0;rrRound < MAXCLIENTS-1;rrRound++){
             System.out.println("Round "+rrRound+" matchups:");
+            for (int i=0;i<MAXCLIENTS;i++) // zero out the scores for this round.
+                roundScores[i]=0;
+
+            roundsToPlay=(int) (Math.random()*10000)+10000;
+            if (DEBUG) roundsToPlay=30;
+            if (VERBOSE) System.out.println("Playing "+roundsToPlay+" rounds");
+
             
             //First print out the current rotation.
             if (VERBOSE) 
                 for (int i=0;i<offset;i++)
-                        System.out.println(playerMatch[i]+" vs "+playerMatch[MAXCLIENTS-1-i]);
+                    System.out.println(playerMatch[i]+" vs "+playerMatch[MAXCLIENTS-1-i]);
 
+                for (int i=0;i<offset;i++)
+                    System.out.println(names[playerMatch[i]]+" vs "+names[playerMatch[MAXCLIENTS-1-i]]);
+        
+                    
             // We know who is playing who now, so we go round by round.
-    
-        // Start playing rounds.  round here is round of game, not iterations of the round robin.
-        for (int round=1; round <= roundsToPlay; round++){
-            // Play a round
-            //First find out what they want to do.
-            for (int i=0;i< MAXCLIENTS;i++){
-                if (VERBOSE) System.out.print("Listening for "+names[i]+"move.  ");
-                try {
-                    theySaid[i]=hearFromThem[i].readUTF();
-                    if (VERBOSE) System.out.print("Heard "+theySaid[i]);
 
-                    if (VERBOSE) System.out.println();
-                } catch (Exception e){System.out.println(e);}
-            } // for i (listening)
-
-            // Now tell their opponent.  We are going to reuse our whoIsOpponent function again for this.
-            // If it is the last round, don't do this.
-            
-          
-            
-            if (round <roundsToPlay)
+            // Start playing rounds.  round here is round of game, not iterations of the round robin.
+            for (int round=1; round <= roundsToPlay; round++){
+                // Play a round
+                //First find out what they want to do.
                 for (int i=0;i< MAXCLIENTS;i++){
-                    if (VERBOSE) System.out.print("Sharing other players move  with "+names[i]);
+                    if (VERBOSE) System.out.print("Listening for "+names[i]+"move.  ");
                     try {
-                        talkToThem[i].writeUTF("O-"+theySaid[findIndex(whoIsOpponent(i))]);
-                        if (VERBOSE) System.out.print("..sent: O-"+theySaid[findIndex(whoIsOpponent(i))]);
+                        theySaid[i]=hearFromThem[i].readUTF();
+                        if (VERBOSE) System.out.print("Heard "+theySaid[i]);
 
                         if (VERBOSE) System.out.println();
                     } catch (Exception e){System.out.println(e);}
+                } // for i (listening)
 
-                }            // for i (talking)
-        }  // for each round
+                // Now tell their opponent.  We are going to reuse our whoIsOpponent function again for this.
+                // If it is the last round, don't do this.
 
-        //Tell them all GAMEOVER
-        for (int i=0;i< MAXCLIENTS;i++){
-            if (VERBOSE) System.out.print("Saying GAMEOVER to "+names[i]);
-            try {
+            
+                if (round <roundsToPlay)
+                    for (int i=0;i< MAXCLIENTS;i++){
+                        if (VERBOSE) System.out.print("Sharing other players move  with "+names[i]);
+                        try {
+                            talkToThem[i].writeUTF("O-"+theySaid[findIndex(whoIsOpponent(i))]);
+                            if (VERBOSE) System.out.print("..sent: O-"+theySaid[findIndex(whoIsOpponent(i))]);
+                            if (VERBOSE) System.out.println();
+                            updateScore(i,theySaid[i],theySaid[findIndex(whoIsOpponent(i))]);
+
+                        } catch (Exception e){System.out.println(e);}
+
+                    }            // for i (talking)
+            }  // for each round
+
+            //Tell them all GAMEOVER
+            for (int i=0;i< MAXCLIENTS;i++){
+                if (VERBOSE) System.out.print("Saying GAMEOVER to "+names[i]);
+                try {
                     String msg;
-                if (rrRound<MAXCLIENTS-2)
-                    msg="GAMEOVER";
+                    if (rrRound<MAXCLIENTS-2)
+                        msg="GAMEOVER";
                     else msg="COMPETITIONOVER";
                     talkToThem[i].writeUTF(msg);
-                if (VERBOSE) System.out.println("..sent "+msg);
-            } catch (Exception e){System.out.println(e);}
-        }
-        if (VERBOSE) System.out.println();
-        
-        // Now, ignoring the first position, rotate the array clockwise.
+                    if (VERBOSE) System.out.println("..sent "+msg);
+                } catch (Exception e){System.out.println(e);}
+            } // for i
+
+            if (VERBOSE) System.out.println();
+            if (VERBOSE) printRoundScoreCard();
+
+            updateFullScoreCard(roundsToPlay);
+            printFullScoreCard();
+
+            // Now, ignoring the first position, rotate the array clockwise.
             // We need to remember the first rotated position for putting in at the end.
             // As the template I am working on does a "clockwise" rotation, this is easier doing from 
             // top of the array down, rather than the other way around.  Alternative would be to 
@@ -286,44 +343,44 @@ public class PDBroker
             for (int i=MAXCLIENTS-1; i>0 ;i--)
                 playerMatch[i]=playerMatch[i-1];
             playerMatch[1]=remember;
-            
-            
+
         
-    } // round robin.
-    // With the roundrobin over we need to tell them the whole competition is over.
-    
-    for (int i=0;i< MAXCLIENTS;i++){
+        } // round robin.
+        // With the roundrobin over we need to tell them the whole competition is over.
+
+        System.out.println("FINAL SCORES");
+        printFullScoreCard();
+        
+        for (int i=0;i< MAXCLIENTS;i++){
             if (VERBOSE) System.out.print("Shutting down connections to "+names[i]);
             try {
                 talkToThem[i].close();
                 hearFromThem[i].close();
                 connectedClients--;
-  //              if (VERBOSE) System.out.println("..sent COMPETITIONOVER");
+                //              if (VERBOSE) System.out.println("..sent COMPETITIONOVER");
             } catch (Exception e){System.out.println(e);}
         } // for
-    
+
         if (connectedClients !=0)
-                System.out.println("Ut oh, still have a client somehow. Bad.");
+            System.out.println("Ut oh, still have a client somehow. Bad.");
         readyToPlay=false;
 
     }// Playmatch
 
-    
     // findIndex finds the index in the current roundrobin of the given player
     int findIndex(int who){
-         for (int checkIndex=0; checkIndex < MAXCLIENTS; checkIndex++)
-         if (playerMatch[checkIndex]==who) 
+        for (int checkIndex=0; checkIndex < MAXCLIENTS; checkIndex++)
+            if (playerMatch[checkIndex]==who) 
                 return checkIndex;
-         // We'll never get here, but blueJ complaints if it thinks we might be missing a return
-         return -1;  // If we do get here, lets make sure we error out.
+        // We'll never get here, but blueJ complaints if it thinks we might be missing a return
+        return -1;  // If we do get here, lets make sure we error out.
     }
-    
+
     // whoISOpponent returns the connection number of the opponent of the gived connection.
     int whoIsOpponent(int me){
-     return playerMatch[MAXCLIENTS-1-findIndex(me)];        
+        return playerMatch[MAXCLIENTS-1-findIndex(me)];        
     }
-    
-    
+
     /*
      * Protocol here is the same as for a JOIN.
      * Server starts with a "BEGIN" message.  
