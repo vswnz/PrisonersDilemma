@@ -48,14 +48,18 @@ import java.net.InetAddress;  // To find my IP
  * Version 7 - 28-Mar-2020 Added in send COMPETITIONOVER at end of all round robins so clients can leave.
  *                          Also closed out the datastreams at end of competition.
  * Version 8 - 31-Mar-2020 Implement basic scoring.
+ * Version 9 - 8th April - fixed bugs with scoring and with correct moves being transmitted.
+ *                          - also removed phantom last round being sent out which causes odd behavior for 
+ *                          the first play in each subsequent round of a multiround round robin.
  * 
  */
 
 public class PDBroker
 {
     final int PORT=7654; // hopefully free
-    final boolean VERBOSE = false;
-    final boolean DEBUG=false ; // short games etc.
+     boolean VERBOSE = false;
+    final int VERBOSITY=0;  // how verbose to be. 2= scoring stuff
+    final boolean DEBUG=true ; // short games etc.
     final int MAXCLIENTS=4;  // Maximum number of connections that I will accept.  Must be even.
     // Round robin stuff
     int playerMatch[] = new int[MAXCLIENTS];  // Who player is matched againt.
@@ -209,23 +213,27 @@ public class PDBroker
         else  System.out.println("Ut oh.. don't understand those moves."+playerMove +" vs "+OpponentMove);          
     }
 
+    //Print out the scores for just the last round
     void printRoundScoreCard(){
         for (int i=0; i<MAXCLIENTS;i++)
-            System.out.println(names[i]+" scored: "+roundScores[i]);        
+            System.out.println(names[i]+" scored: "+roundScores[i]+" for the current round");        
     }
 
+    // averages the score for the round by the number of rounds in the game, so long games don't distort the scores.
     void updateFullScoreCard(int rounds)
     {
-/* 
+ 
+        if (DEBUG)
          for (int i=0;i<MAXCLIENTS;i++)
-            System.out.println("Player "+ names[i] +" score being adjusted by "+roundScores[i] +" shared over "+rounds+" rounds");
- */
+            System.out.println("Player "+ names[i] +" score ("+fullScores[i]+") being adjusted by "+roundScores[i] +" shared over "+rounds+" rounds");
+
 
         for (int i=0;i<MAXCLIENTS;i++)
             fullScores[i]+=(float)roundScores[i]/rounds;
 
     }
 
+    // Print out the total score up to this point in the game.
     void printFullScoreCard()
     {
      
@@ -257,18 +265,26 @@ public class PDBroker
         // The round robin algorithm is taken from wikipedia.  It puts everyone in an array and rotates it
         // around.  Details at : https://en.wikipedia.org/wiki/Round-robin_tournament
 
-        // Set up initial array with players in order.
-        for (int i=0;i<MAXCLIENTS;i++)
+        // Set up initial array with players in order.  And zero out the scores
+        for (int i=0;i<MAXCLIENTS;i++){
             playerMatch[i]=i;
+            fullScores[i]=0;
+        }
+            
 
         //Now work through the round robin rounds
         for (int rrRound=0;rrRound < MAXCLIENTS-1;rrRound++){
             System.out.println("Round "+rrRound+" matchups:");
+            
+//            if(rrRound==1) VERBOSE=true; // just temporarilty.
+//            if(rrRound==2) VERBOSE=false; // just temporarilty.
+            
+            
             for (int i=0;i<MAXCLIENTS;i++) // zero out the scores for this round.
                 roundScores[i]=0;
 
             roundsToPlay=(int) (Math.random()*10000)+10000;
-            if (DEBUG) roundsToPlay=30;
+            if (DEBUG) roundsToPlay=15;
             if (VERBOSE) System.out.println("Playing "+roundsToPlay+" rounds");
 
             
@@ -288,12 +304,12 @@ public class PDBroker
                 // Play a round
                 //First find out what they want to do.
                 for (int i=0;i< MAXCLIENTS;i++){
-                    if (VERBOSE) System.out.print("Listening for "+names[i]+"move.  ");
+                    if (VERBOSE || VERBOSITY==2) System.out.print("Listening for "+names[i]+" move.  ");
                     try {
                         theySaid[i]=hearFromThem[i].readUTF();
-                        if (VERBOSE) System.out.print("Heard "+theySaid[i]);
+                        if (VERBOSE || VERBOSITY==2) System.out.print("Heard "+theySaid[i]);
 
-                        if (VERBOSE) System.out.println();
+                        if (VERBOSE || VERBOSITY==2) System.out.println();
                     } catch (Exception e){System.out.println(e);}
                 } // for i (listening)
 
@@ -301,35 +317,42 @@ public class PDBroker
                 // If it is the last round, don't do this.
 
             
-                if (round <roundsToPlay)
+                if (round <roundsToPlay) // We don't need to share the opponents last move back on the last turn. that will just trigger their next move
                     for (int i=0;i< MAXCLIENTS;i++){
-                        if (VERBOSE) System.out.print("Sharing other players move  with "+names[i]);
+                        if (VERBOSE  || VERBOSITY==2 ) System.out.print("Sharing other players move  with "+names[i]);
                         try {
-                            talkToThem[i].writeUTF("O-"+theySaid[findIndex(whoIsOpponent(i))]);
-                            if (VERBOSE) System.out.print("..sent: O-"+theySaid[findIndex(whoIsOpponent(i))]);
-                            if (VERBOSE) System.out.println();
-                            updateScore(i,theySaid[i],theySaid[findIndex(whoIsOpponent(i))]);
+                            talkToThem[i].writeUTF("O-"+theySaid[whoIsOpponent(i)]);
+                            
+//                            if (VERBOSE || VERBOSITY==2) System.out.print("..sent: O-"+theySaid[findIndex(whoIsOpponent(i))]);
+                            if (VERBOSE || VERBOSITY==2) System.out.print("..sent: O-"+theySaid[whoIsOpponent(i)]);
+                            if (VERBOSE || VERBOSITY==2) System.out.println();
+ //                            updateScore(i,theySaid[i],theySaid[findIndex(whoIsOpponent(i))]);
+                           updateScore(i,theySaid[i],theySaid[whoIsOpponent(i)]);
 
                         } catch (Exception e){System.out.println(e);}
 
                     }            // for i (talking)
             }  // for each round
 
-            //Tell them all GAMEOVER
+            //Wrap up the round.
             for (int i=0;i< MAXCLIENTS;i++){
+            // Add in scores from thefinal round.            
+            updateScore(i,theySaid[i],theySaid[whoIsOpponent(i)]);
+
                 if (VERBOSE) System.out.print("Saying GAMEOVER to "+names[i]);
                 try {
                     String msg;
                     if (rrRound<MAXCLIENTS-2)
                         msg="GAMEOVER";
-                    else msg="COMPETITIONOVER";
+                    else msg="COMPETITIONOVER";                    
                     talkToThem[i].writeUTF(msg);
                     if (VERBOSE) System.out.println("..sent "+msg);
                 } catch (Exception e){System.out.println(e);}
             } // for i
 
             if (VERBOSE) System.out.println();
-            if (VERBOSE) printRoundScoreCard();
+            //if (VERBOSE) printRoundScoreCard();
+            printRoundScoreCard();
 
             updateFullScoreCard(roundsToPlay);
             printFullScoreCard();
