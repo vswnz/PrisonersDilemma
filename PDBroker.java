@@ -60,7 +60,7 @@ public class PDBroker
      boolean VERBOSE = false;
     final int VERBOSITY=0;  // how verbose to be. 2= scoring stuff
     final boolean DEBUG=true ; // short games etc.
-    final int MAXCLIENTS=4;  // Maximum number of connections that I will accept.  Must be even.
+    final int MAXCLIENTS=2;  // Maximum number of connections that I will accept.  Must be even.
     // Round robin stuff
     int playerMatch[] = new int[MAXCLIENTS];  // Who player is matched againt.
     int offset=MAXCLIENTS/2;
